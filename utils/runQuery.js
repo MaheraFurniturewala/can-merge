@@ -15,5 +15,6 @@ module.exports = async function runQuery({ commit, repo, pr, sha, token }) {
 	} catch (err) {
 		throw err.message;
 	}
+	console.log(response)
 	return response;
 };
