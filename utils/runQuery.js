@@ -3,6 +3,12 @@
 const { graphql } = require('@octokit/graphql');
 const buildQuery = require('./buildQuery');
 
+const printAPIPoints = (points) => {
+	console.log(`\nAPI Points:
+  \tused\t\t-\t${points.cost}
+  \tremaining\t-\t${points.remaining}\n`);
+};
+
 module.exports = async function runQuery({ commit, repo, pr, sha, token }) {
 	const [owner, name] = repo.split('/');
 	let response = null;
@@ -15,6 +21,6 @@ module.exports = async function runQuery({ commit, repo, pr, sha, token }) {
 	} catch (err) {
 		throw err.message;
 	}
-	console.log(response)
+	printAPIPoints(response.rateLimit);
 	return response;
 };
