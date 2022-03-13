@@ -14,10 +14,12 @@ const getSHA = require('../utils/getSHA');
 const runQuery = require('../utils/runQuery');
 const evaluatePullRequest = require('../utils/evaluatePullRequest');
 const evaluateChecks = require('../utils/evaluateChecks');
-const parsePullRequest = require('../utils/parsePullRequest');
 const parseRemoteUrl = require('../utils/parseRemoteUrl');
 const pullRequestStatus = require('../utils/models/pullRequestStatus');
 const getMessage = require('../utils/getMessage');
+const evaluateCommitStatus = require('../utils/evaluateCommitStatus');
+const commitStatus = require('../utils/models/commitStatus');
+const filterPullRequest = require('../utils/filterPullRequest');
 
 const {
 	GITHUB_TOKEN,
@@ -35,6 +37,13 @@ const args = Yargs
 	.help()
 	.strict()
 	.options({
+		commit: {
+			alias: 'c',
+			default: false,
+			demandOption: false,
+			describe: 'check commit status',
+			type: 'boolean',
+		},
 		pr: {
 			alias: 'p',
 			demandOption: false,
@@ -61,7 +70,7 @@ const args = Yargs
 		},
 		sha: {
 			alias: 's',
-			default: getSHA(process.cwd(), true),
+			default: 'HEAD',
 			describe: 'commit SHA',
 			type: 'string',
 		},
@@ -72,7 +81,6 @@ const args = Yargs
 		},
 		watch: {
 			alias: 'w',
-			default: false,
 			describe: 'watch pending checks',
 			type: 'boolean',
 		},
@@ -82,6 +90,15 @@ const args = Yargs
 			throw chalk.red('`--repo` and `--remote` are mutually exclusive');
 		}
 		return true;
+	})
+	.middleware((argv) => {
+		if (argv.sha === 'HEAD') {
+			return {
+				...argv,
+				sha: getSHA(process.cwd(), true),
+			};
+		}
+		return argv;
 	})
 	.middleware((argv) => {
 		if (argv.repo === REPO && argv.remote) {
@@ -114,18 +131,30 @@ function outputStatus(response) {
 	if (NODE_ENV === 'DEBUG') {
 		console.log(JSON.stringify(response, null, 2));
 	}
-	const prs = parsePullRequest(response);
-	if (prs.length === 0) {
+	if (args.commit) {
+		if (response.repository.commit === null) {
+			console.info(chalk.redBright(`⚠ This remote repository does not contain any commits matching sha: ${args.sha}`));
+		} else {
+			const status = evaluateCommitStatus(response.repository.commit);
+			console.info(getMessage(status));
+			if (status !== commitStatus.STATUS_SUCCESS) {
+				process.exitCode = (process.exitCode ?? 0) + 1;
+			}
+		}
+	}
+
+	const prs = filterPullRequest(response, args.pr);
+
+	if (prs.length === 0 && !args.commit) {
 		if (args.pr) {
 			console.info(chalk.redBright(`⚠ This remote repository does not contain any pull requests matching number: ${args.pr}`));
 		} else {
 			console.info(chalk.redBright(`⚠ This remote repository does not contain any pull requests matching sha: ${args.sha}`));
 		}
-		process.exitCode = 1;
 	} else {
 		prs.forEach((pr) => {
 			const status = evaluatePullRequest(pr);
-			console.info('PR:', pr.number, getMessage(status));
+			console.info(pr.url, 'by @'.concat(pr.author.login, ':'), pr.title, '\n', getMessage(status));
 			if (status !== pullRequestStatus.MERGEABLE) {
 				process.exitCode = (process.exitCode ?? 0) + 1;
 			}
@@ -152,6 +181,7 @@ const options = {
 
 https.request(options, (response) => {
 	const params = {
+		commit: args.commit,
 		repo: parseRemoteUrl(response.headers?.location) ?? String(repo),
 		pr,
 		sha: pr ? null : sha,
@@ -162,11 +192,11 @@ https.request(options, (response) => {
 		console.log('Waiting for all checks to complete ...\n');
 		watch(args.retryDelay, () => runQuery(params)).then((res) => {
 			console.clear();
-			outputStatus(res);
+			outputStatus(res, args.pr);
 		}).catch((error) => { console.log(chalk.red(error)); });
 	} else {
 		runQuery(params).then((res) => {
-			outputStatus(res);
+			outputStatus(res, args.pr);
 		}).catch((error) => { console.log(chalk.red(error)); });
 	}
 }).on('error', (err) => {
