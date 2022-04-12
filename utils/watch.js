@@ -18,7 +18,7 @@ module.exports = async function watch(retryDelay, getResponse) {
 	const secondsLeft = Math.ceil(milliSecondsLeft / 1000);
 
 	if ((remAPIPoints < lastReqCost) && (retryDelay < milliSecondsLeft)) {
-		console.error(`API points exhausted. Command will run after ${secondsLeft} seconds\n\n`);
+		console.error(`API points exhausted\nCommand will run after ${secondsLeft} seconds\n\n`);
 		await delay(milliSecondsLeft);
 	}
 
